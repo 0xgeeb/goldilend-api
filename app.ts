@@ -79,5 +79,5 @@ app.get('/ownedBeras/:userAddress', async (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`holders-api running on port ${port}`);
+  console.log(`goldilend-api running on port ${port}`);
 }); 

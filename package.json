@@ -1,5 +1,5 @@
 {
-  "name": "holders-api",
+  "name": "goldilend-api",
   "version": "1.0.0",
   "description": "API to find NFT IDs owned by a user",
   "main": "app.ts",
