@@ -23,8 +23,8 @@ const sleep = async (ms: number): Promise<void> => {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-const bandbearAddy = '0x2cA522eB4D71ab91E5f87053Ab5a9c9EB8F2213a'
-const bandbearDeployBlock = 8526508
+const bandbearAddy = '0xfcC3371f88a437DD756513de3d14846c2D918a4d'
+const bandbearDeployBlock = 8532704
 const step = 10000
 
 app.get('/ownedBeras/:userAddress', async (req, res) => {
