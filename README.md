@@ -40,7 +40,7 @@ npm run update
 
 6. Start the API server:
 ```bash
-npm run dev
+npm run app
 ```
 
 ## AWS/Amazon Linux Setup
@@ -128,7 +128,7 @@ npm install -g pm2
 pm2 start npm --name "goldilend-update" -- run update
 
 # Start API server
-pm2 start npm --name "goldilend-api" -- run dev
+pm2 start npm --name "goldilend-api" -- run app
 
 # Save PM2 configuration
 pm2 save

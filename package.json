@@ -4,7 +4,7 @@
   "description": "API to find NFT IDs owned by a user",
   "main": "app.ts",
   "scripts": {
-    "dev": "npx tsx app.ts",
+    "app": "npx tsx app.ts",
     "build": "npx tsc",
     "ingest": "npx tsx ingest.ts",
     "update": "npx tsx update.ts"
