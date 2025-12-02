@@ -1,6 +1,6 @@
 import dotenv from 'dotenv'
 import { createPublicClient, http, parseAbiItem, type Chain } from 'viem'
-import { DatabaseService, NFTTransferEvent } from './database'
+import { DatabaseService, NFTTransferEvent, LoanEvent } from './database'
 import { collections } from './collections'
 
 dotenv.config()
@@ -22,6 +22,10 @@ const sleep = async (ms: number): Promise<void> => {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+// Goldilend lending contract
+const lendingContractAddress = '0x46Ced2A745C911C76407fdA107FEACb22c32D05b'
+const lendingContractDeployBlock = 13014003
+
 const step = 10000
 
 class AutoUpdater {
@@ -42,8 +46,9 @@ class AutoUpdater {
     }
 
     this.isRunning = true
-    console.log('Starting NFT auto updater...')
+    console.log('Starting auto updater...')
     console.log(`Tracking ${collections.length} NFT collections: ${collections.map(c => c.name).join(', ')}`)
+    console.log(`Tracking loan contract: ${lendingContractAddress}`)
     console.log(`Check interval: ${this.checkInterval}ms (${this.checkInterval/1000}s)`)
     console.log(`Batch size: ${this.batchSize} blocks`)
     console.log(`RPC delay: ${this.rpcDelay}ms`)
@@ -68,12 +73,11 @@ class AutoUpdater {
     const currentBlock = await client.getBlockNumber()
     const currentBlockNumber = Number(currentBlock)
 
-    // Get latest processed block
+    // Process NFT events
     const latestProcessed = await this.db.getLatestBlock()
     const earliestDeployBlock = Math.min(...collections.map(c => c.deployBlock))
     const startBlock = latestProcessed ? latestProcessed + 1 : earliestDeployBlock
 
-    // Process all available blocks up to current block
     if (startBlock <= currentBlockNumber) {
       let processingBlock = startBlock
       while (processingBlock <= currentBlockNumber) {
@@ -81,6 +85,21 @@ class AutoUpdater {
         const blocksToProcess = endBlock - processingBlock + 1
         console.log(`Processing NFT blocks ${processingBlock} to ${endBlock} (${blocksToProcess} blocks)`)
         await this.ingestNFTEvents(processingBlock, endBlock)
+        processingBlock = endBlock + 1
+      }
+    }
+
+    // Process Loan events
+    const latestLoanProcessed = await this.db.getLatestLoanBlock()
+    const loanStartBlock = latestLoanProcessed ? latestLoanProcessed + 1 : lendingContractDeployBlock
+
+    if (loanStartBlock <= currentBlockNumber) {
+      let processingBlock = loanStartBlock
+      while (processingBlock <= currentBlockNumber) {
+        const endBlock = Math.min(processingBlock + this.batchSize - 1, currentBlockNumber)
+        const blocksToProcess = endBlock - processingBlock + 1
+        console.log(`Processing Loan blocks ${processingBlock} to ${endBlock} (${blocksToProcess} blocks)`)
+        await this.ingestLoanEvents(processingBlock, endBlock)
         processingBlock = endBlock + 1
       }
     }
@@ -136,6 +155,62 @@ class AutoUpdater {
     // Update the latest processed block
     await this.db.updateLatestBlock(toBlock)
     console.log(`Updated latest processed block to ${toBlock}`)
+  }
+
+  private async ingestLoanEvents(fromBlock: number, toBlock: number): Promise<void> {
+    const allEvents: LoanEvent[] = []
+
+    // Collect Borrow events
+    for (let from = Math.max(fromBlock, lendingContractDeployBlock); from <= toBlock; from += step) {
+      const to = Math.min(from + step - 1, toBlock)
+      const logs = await client.getLogs({
+        address: lendingContractAddress as `0x${string}`,
+        event: parseAbiItem('event Borrow(address indexed user, uint256 loanID, uint256 borrowAmount, uint256 interestAmount, uint256 expiration, address collateral, uint256 collateralID)'),
+        fromBlock: BigInt(from),
+        toBlock: BigInt(to)
+      })
+
+      if (logs.length > 0) {
+        console.log(`  Found ${logs.length} Borrow events`)
+      }
+
+      for (const log of logs) {
+        const user = (log.args?.user as string)?.toLowerCase()
+        const loanID = log.args?.loanID?.toString() ?? '0'
+        const borrowAmount = log.args?.borrowAmount?.toString() ?? '0'
+        const interestAmount = log.args?.interestAmount?.toString() ?? '0'
+        const expiration = log.args?.expiration?.toString() ?? '0'
+        const collateral = (log.args?.collateral as string)?.toLowerCase()
+        const collateralID = log.args?.collateralID?.toString() ?? '0'
+        const blockNumber = Number(log.blockNumber)
+        const txHash = log.transactionHash
+
+        allEvents.push({
+          user,
+          loanID,
+          borrowAmount,
+          interestAmount,
+          expiration,
+          collateral,
+          collateralID,
+          block: blockNumber,
+          timestamp: Math.floor(Date.now() / 1000),
+          txHash
+        })
+      }
+
+      await sleep(this.rpcDelay)
+    }
+
+    // Save all events to database
+    if (allEvents.length > 0) {
+      await this.db.saveLoanEvents(allEvents)
+      console.log(`Saved ${allEvents.length} Borrow events to database`)
+    }
+
+    // Update the latest processed loan block
+    await this.db.updateLatestLoanBlock(toBlock)
+    console.log(`Updated latest processed loan block to ${toBlock}`)
   }
 
   async close(): Promise<void> {

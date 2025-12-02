@@ -7,6 +7,7 @@
     "app": "npx tsx app.ts",
     "build": "npx tsc",
     "ingest": "npx tsx ingest.ts",
+    "loaningest": "npx tsx loanIngest.ts",
     "update": "npx tsx update.ts"
   },
   "dependencies": {
