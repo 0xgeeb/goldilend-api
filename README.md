@@ -84,7 +84,7 @@ Returns the latest NFT ownership data for a given user address.
 ```json
 {
   "userAddress": "0x...",
-  "collectionAddress": "0xfcC3371f88a437DD756513de3d14846c2D918a4d",
+  "collectionAddress": "0x12B32F41d11dF8D8f6d23090d0DC8fcB3F5Ac0f4",
   "nftIds": [1, 5, 42, ...],
   "latestProcessedBlock": 8900000
 }

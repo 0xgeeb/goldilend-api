@@ -9,7 +9,7 @@ app.use(express.json());
 
 const db = new DatabaseService();
 
-const bandbearAddy = '0xfcC3371f88a437DD756513de3d14846c2D918a4d'
+const bandbearAddy = '0x12B32F41d11dF8D8f6d23090d0DC8fcB3F5Ac0f4'
 
 app.get('/ownedBeras/:userAddress', async (req, res) => {
   console.log('ownedBeras request received');

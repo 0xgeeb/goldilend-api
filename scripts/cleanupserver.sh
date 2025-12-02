@@ -40,7 +40,7 @@ fi
 
 # Truncate and reset tables
 echo "⚙️  Truncating tables and resetting sequences..."
-sudo -u postgres psql -d nft_ownership <<SQL
+sudo -u postgres psql -d goldilend_api <<SQL
 TRUNCATE TABLE nft_transfer_events RESTART IDENTITY CASCADE;
 TRUNCATE TABLE latest_block RESTART IDENTITY CASCADE;
 ALTER SEQUENCE nft_transfer_events_id_seq RESTART WITH 1;

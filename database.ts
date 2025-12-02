@@ -16,13 +16,13 @@ export class DatabaseService {
     console.log('Initializing database connection...')
     console.log('DB_HOST:', process.env.DB_HOST || 'localhost')
     console.log('DB_PORT:', process.env.DB_PORT || '5432')
-    console.log('DB_NAME:', process.env.DB_NAME || 'nft_ownership')
+    console.log('DB_NAME:', process.env.DB_NAME || 'goldilend_api')
     console.log('DB_USER:', process.env.DB_USER || 'postgres')
 
     this.pool = new Pool({
       host: process.env.DB_HOST || 'localhost',
       port: parseInt(process.env.DB_PORT || '5432'),
-      database: process.env.DB_NAME || 'nft_ownership',
+      database: process.env.DB_NAME || 'goldilend_api',
       user: process.env.DB_USER || 'postgres',
       password: process.env.DB_PASSWORD || '',
       max: 20,

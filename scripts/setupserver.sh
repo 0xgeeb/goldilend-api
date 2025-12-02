@@ -24,7 +24,7 @@ sudo systemctl start postgresql
 echo "Setting up database and user..."
 sudo -u postgres psql << SQL
 CREATE USER nft_user WITH PASSWORD 'nft_user_password_420';
-CREATE DATABASE nft_ownership OWNER nft_user;
+CREATE DATABASE goldilend_api OWNER nft_user;
 SQL
 
 echo ""
@@ -36,7 +36,7 @@ echo ""
 echo "Add these to your .env file:"
 echo "DB_HOST=localhost"
 echo "DB_PORT=5432"
-echo "DB_NAME=nft_ownership"
+echo "DB_NAME=goldilend_api"
 echo "DB_USER=nft_user"
 echo "DB_PASSWORD=nft_user_password_420"
 echo ""
