@@ -28,23 +28,24 @@ sudo systemctl start postgresql
 echo "Waiting for PostgreSQL to start..."
 sleep 3
 
-# Configure PostgreSQL to use password authentication
-echo "Configuring PostgreSQL authentication..."
-sudo sed -i 's/ident$/md5/g' /var/lib/pgsql/data/pg_hba.conf
-sudo sed -i 's/peer$/md5/g' /var/lib/pgsql/data/pg_hba.conf
-
-# Restart PostgreSQL to apply authentication changes
-echo "Restarting PostgreSQL..."
-sudo systemctl restart postgresql
-sleep 3
-
-# Create database and user
+# Create database and user first (before changing auth)
 echo "Setting up database and user..."
 sudo -u postgres psql << SQL
 CREATE USER nft_user WITH PASSWORD 'replace_me';
 CREATE DATABASE goldilend_api OWNER nft_user;
 GRANT ALL PRIVILEGES ON DATABASE goldilend_api TO nft_user;
 SQL
+
+# Configure PostgreSQL to use password authentication for non-postgres users
+echo "Configuring PostgreSQL authentication..."
+# Add a line allowing md5 auth for nft_user specifically
+sudo bash -c 'echo "host    goldilend_api    nft_user    127.0.0.1/32    md5" >> /var/lib/pgsql/data/pg_hba.conf'
+sudo bash -c 'echo "host    goldilend_api    nft_user    ::1/128         md5" >> /var/lib/pgsql/data/pg_hba.conf'
+
+# Restart PostgreSQL to apply authentication changes
+echo "Restarting PostgreSQL..."
+sudo systemctl restart postgresql
+sleep 3
 
 echo ""
 echo "✅ PostgreSQL setup completed!"
