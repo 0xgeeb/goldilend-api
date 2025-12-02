@@ -11,14 +11,22 @@ sudo dnf clean metadata
 echo "Installing PostgreSQL 15..."
 sudo dnf install -y postgresql15 postgresql15-server
 
-# Initialize PostgreSQL database (Amazon Linux 2023 location)
+# Initialize PostgreSQL database
 echo "Initializing PostgreSQL database..."
-sudo /usr/libexec/postgresql-setup --initdb
+if [ ! -d "/var/lib/pgsql/data/base" ]; then
+    sudo /usr/bin/postgresql-setup --initdb
+else
+    echo "PostgreSQL already initialized, skipping..."
+fi
 
 # Enable and start the PostgreSQL service
 echo "Starting PostgreSQL service..."
 sudo systemctl enable postgresql
 sudo systemctl start postgresql
+
+# Wait for PostgreSQL to be ready
+echo "Waiting for PostgreSQL to start..."
+sleep 3
 
 # Create database and user
 echo "Setting up database and user..."
