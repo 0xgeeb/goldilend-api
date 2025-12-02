@@ -2,9 +2,10 @@ import { Pool } from 'pg'
 
 export interface NFTTransferEvent {
   id?: number
+  collectionAddress: string
   from: string
   to: string
-  tokenId: number
+  tokenId: string
   block: number
   timestamp: number
 }
@@ -43,9 +44,10 @@ export class DatabaseService {
       const createTransferTableSQL = `
         CREATE TABLE IF NOT EXISTS nft_transfer_events (
           id SERIAL PRIMARY KEY,
+          collection_address VARCHAR(42) NOT NULL,
           from_address VARCHAR(42) NOT NULL,
           to_address VARCHAR(42) NOT NULL,
-          token_id INTEGER NOT NULL,
+          token_id TEXT NOT NULL,
           block BIGINT NOT NULL,
           timestamp BIGINT NOT NULL
         )
@@ -68,10 +70,11 @@ export class DatabaseService {
       // Create indexes for better performance
       const createIndexesSQL = [
         'CREATE INDEX IF NOT EXISTS idx_block ON nft_transfer_events(block)',
+        'CREATE INDEX IF NOT EXISTS idx_collection_address ON nft_transfer_events(collection_address)',
         'CREATE INDEX IF NOT EXISTS idx_token_id ON nft_transfer_events(token_id)',
         'CREATE INDEX IF NOT EXISTS idx_from_address ON nft_transfer_events(from_address)',
         'CREATE INDEX IF NOT EXISTS idx_to_address ON nft_transfer_events(to_address)',
-        'CREATE INDEX IF NOT EXISTS idx_token_block ON nft_transfer_events(token_id, block)'
+        'CREATE INDEX IF NOT EXISTS idx_collection_token ON nft_transfer_events(collection_address, token_id, block)'
       ]
 
       console.log('Creating indexes...')
@@ -103,11 +106,12 @@ export class DatabaseService {
 
       // Batch insert
       const values = events.map((event, index) => {
-        const offset = index * 5
-        return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5})`
+        const offset = index * 6
+        return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6})`
       }).join(', ')
 
       const flatValues = events.flatMap(event => [
+        event.collectionAddress,
         event.from,
         event.to,
         event.tokenId,
@@ -116,7 +120,7 @@ export class DatabaseService {
       ])
 
       const query = `
-        INSERT INTO nft_transfer_events (from_address, to_address, token_id, block, timestamp)
+        INSERT INTO nft_transfer_events (collection_address, from_address, to_address, token_id, block, timestamp)
         VALUES ${values}
         ON CONFLICT DO NOTHING
       `
@@ -175,7 +179,7 @@ export class DatabaseService {
     }
   }
 
-  async getOwnedNFTs(userAddress: string, upToBlock?: number): Promise<number[]> {
+  async getOwnedNFTs(userAddress: string, upToBlock?: number): Promise<Array<{ collectionAddress: string, tokenId: string }>> {
     const client = await this.pool.connect()
 
     try {
@@ -184,13 +188,13 @@ export class DatabaseService {
       // Get all transfer events up to the specified block (or all if not specified)
       const query = upToBlock
         ? `
-          SELECT from_address, to_address, token_id
+          SELECT collection_address, from_address, to_address, token_id
           FROM nft_transfer_events
           WHERE block <= $1
           ORDER BY block ASC, id ASC
         `
         : `
-          SELECT from_address, to_address, token_id
+          SELECT collection_address, from_address, to_address, token_id
           FROM nft_transfer_events
           ORDER BY block ASC, id ASC
         `
@@ -199,27 +203,46 @@ export class DatabaseService {
         ? await client.query(query, [upToBlock])
         : await client.query(query)
 
-      // Track current owner of each tokenId
-      const tokenOwners: Map<number, string> = new Map()
+      // Track current owner of each (collection, tokenId) pair
+      const tokenOwners: Map<string, string> = new Map()
 
       result.rows.forEach((row: any) => {
+        const collectionAddress = row.collection_address.toLowerCase()
         const fromAddress = row.from_address.toLowerCase()
         const toAddress = row.to_address.toLowerCase()
-        const tokenId = parseInt(row.token_id)
+        const tokenId = row.token_id
+
+        // Create unique key for collection + tokenId
+        const key = `${collectionAddress}:${tokenId}`
 
         // Update the current owner (last recipient wins)
-        tokenOwners.set(tokenId, toAddress)
+        tokenOwners.set(key, toAddress)
       })
 
       // Filter to get only tokens owned by the user
-      const ownedTokens: number[] = []
-      tokenOwners.forEach((owner, tokenId) => {
+      const ownedTokens: Array<{ collectionAddress: string, tokenId: string }> = []
+      tokenOwners.forEach((owner, key) => {
         if (owner === normalizedAddress) {
-          ownedTokens.push(tokenId)
+          const [collectionAddress, tokenId] = key.split(':', 2)
+          ownedTokens.push({
+            collectionAddress,
+            tokenId
+          })
         }
       })
 
-      return ownedTokens.sort((a, b) => a - b)
+      // Sort by collection address, then by token ID (as strings for huge numbers)
+      return ownedTokens.sort((a, b) => {
+        if (a.collectionAddress !== b.collectionAddress) {
+          return a.collectionAddress.localeCompare(b.collectionAddress)
+        }
+        // Try numeric sort if possible, fall back to string sort
+        const aNum = BigInt(a.tokenId)
+        const bNum = BigInt(b.tokenId)
+        if (aNum < bNum) return -1
+        if (aNum > bNum) return 1
+        return 0
+      })
     } finally {
       client.release()
     }

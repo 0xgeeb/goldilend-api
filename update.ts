@@ -1,6 +1,7 @@
 import dotenv from 'dotenv'
 import { createPublicClient, http, parseAbiItem, type Chain } from 'viem'
 import { DatabaseService, NFTTransferEvent } from './database'
+import { collections } from './collections'
 
 dotenv.config()
 const rpc = process.env.RPC_URL ?? ''
@@ -21,8 +22,6 @@ const sleep = async (ms: number): Promise<void> => {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-const bandbearAddy = '0x12B32F41d11dF8D8f6d23090d0DC8fcB3F5Ac0f4'
-const bandbearDeployBlock = 13014003
 const step = 10000
 
 class AutoUpdater {
@@ -44,6 +43,7 @@ class AutoUpdater {
 
     this.isRunning = true
     console.log('Starting NFT auto updater...')
+    console.log(`Tracking ${collections.length} NFT collections: ${collections.map(c => c.name).join(', ')}`)
     console.log(`Check interval: ${this.checkInterval}ms (${this.checkInterval/1000}s)`)
     console.log(`Batch size: ${this.batchSize} blocks`)
     console.log(`RPC delay: ${this.rpcDelay}ms`)
@@ -70,7 +70,8 @@ class AutoUpdater {
 
     // Get latest processed block
     const latestProcessed = await this.db.getLatestBlock()
-    const startBlock = latestProcessed ? latestProcessed + 1 : bandbearDeployBlock
+    const earliestDeployBlock = Math.min(...collections.map(c => c.deployBlock))
+    const startBlock = latestProcessed ? latestProcessed + 1 : earliestDeployBlock
 
     // Process all available blocks up to current block
     if (startBlock <= currentBlockNumber) {
@@ -90,32 +91,40 @@ class AutoUpdater {
   private async ingestNFTEvents(fromBlock: number, toBlock: number): Promise<void> {
     const allEvents: NFTTransferEvent[] = []
 
-    // Collect Transfer events
-    for (let from = Math.max(fromBlock, bandbearDeployBlock); from <= toBlock; from += step) {
-      const to = Math.min(from + step - 1, toBlock)
-      const logs = await client.getLogs({
-        address: bandbearAddy,
-        event: parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)'),
-        fromBlock: BigInt(from),
-        toBlock: BigInt(to)
-      })
-
-      for (const log of logs) {
-        const fromAddress = (log.args?.from as string)?.toLowerCase()
-        const toAddress = (log.args?.to as string)?.toLowerCase()
-        const tokenId = Number(log.args?.tokenId)
-        const blockNumber = Number(log.blockNumber)
-
-        allEvents.push({
-          from: fromAddress,
-          to: toAddress,
-          tokenId: tokenId,
-          block: blockNumber,
-          timestamp: Math.floor(Date.now() / 1000)
+    // Process each collection
+    for (const collection of collections) {
+      // Collect Transfer events
+      for (let from = Math.max(fromBlock, collection.deployBlock); from <= toBlock; from += step) {
+        const to = Math.min(from + step - 1, toBlock)
+        const logs = await client.getLogs({
+          address: collection.address as `0x${string}`,
+          event: parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)'),
+          fromBlock: BigInt(from),
+          toBlock: BigInt(to)
         })
-      }
 
-      await sleep(this.rpcDelay)
+        if (logs.length > 0) {
+          console.log(`  Found ${logs.length} transfers for ${collection.name}`)
+        }
+
+        for (const log of logs) {
+          const fromAddress = (log.args?.from as string)?.toLowerCase()
+          const toAddress = (log.args?.to as string)?.toLowerCase()
+          const tokenId = log.args?.tokenId?.toString() ?? '0'
+          const blockNumber = Number(log.blockNumber)
+
+          allEvents.push({
+            collectionAddress: collection.address.toLowerCase(),
+            from: fromAddress,
+            to: toAddress,
+            tokenId: tokenId,
+            block: blockNumber,
+            timestamp: Math.floor(Date.now() / 1000)
+          })
+        }
+
+        await sleep(this.rpcDelay)
+      }
     }
 
     // Save all events to database
