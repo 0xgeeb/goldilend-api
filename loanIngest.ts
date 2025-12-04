@@ -1,6 +1,6 @@
 import dotenv from 'dotenv'
 import { createPublicClient, http, parseAbiItem, type Chain } from 'viem'
-import { DatabaseService, LoanEvent } from './database'
+import { DatabaseService, LoanEvent, LoanRepayEvent, LoanLiquidateEvent } from './database'
 
 dotenv.config()
 const rpc = process.env.RPC_URL ?? ''
@@ -28,28 +28,31 @@ const lendingContractDeployBlock = 13014003
 const step = 10000
 
 async function ingestLoanEvents(fromBlock: number, toBlock: number) {
-  console.log(`Ingesting Loan Borrow events from block ${fromBlock} to ${toBlock}`)
+  console.log(`Ingesting Loan events from block ${fromBlock} to ${toBlock}`)
   console.log(`Contract: ${lendingContractAddress}`)
 
   const db = new DatabaseService()
-  const allEvents: LoanEvent[] = []
+  const borrowEvents: LoanEvent[] = []
+  const repayEvents: LoanRepayEvent[] = []
+  const liquidateEvents: LoanLiquidateEvent[] = []
 
-  // Collect Borrow events in batches
+  // Collect events in batches
   for (let from = Math.max(fromBlock, lendingContractDeployBlock); from <= toBlock; from += step) {
     const to = Math.min(from + step - 1, toBlock)
 
-    const logs = await client.getLogs({
+    // Collect Borrow events
+    const borrowLogs = await client.getLogs({
       address: lendingContractAddress as `0x${string}`,
       event: parseAbiItem('event Borrow(address indexed user, uint256 loanID, uint256 borrowAmount, uint256 interestAmount, uint256 expiration, address collateral, uint256 collateralID)'),
       fromBlock: BigInt(from),
       toBlock: BigInt(to)
     })
 
-    if (logs.length > 0) {
-      console.log(`  Blocks ${from}-${to}: Found ${logs.length} Borrow events`)
+    if (borrowLogs.length > 0) {
+      console.log(`  Blocks ${from}-${to}: Found ${borrowLogs.length} Borrow events`)
     }
 
-    for (const log of logs) {
+    for (const log of borrowLogs) {
       const user = (log.args?.user as string)?.toLowerCase()
       const loanID = log.args?.loanID?.toString() ?? '0'
       const borrowAmount = log.args?.borrowAmount?.toString() ?? '0'
@@ -60,7 +63,7 @@ async function ingestLoanEvents(fromBlock: number, toBlock: number) {
       const blockNumber = Number(log.blockNumber)
       const txHash = log.transactionHash
 
-      allEvents.push({
+      borrowEvents.push({
         user,
         loanID,
         borrowAmount,
@@ -74,15 +77,87 @@ async function ingestLoanEvents(fromBlock: number, toBlock: number) {
       })
     }
 
+    // Collect Repay events
+    const repayLogs = await client.getLogs({
+      address: lendingContractAddress as `0x${string}`,
+      event: parseAbiItem('event Repay(address indexed user, uint256 userLoanId, uint256 amount)'),
+      fromBlock: BigInt(from),
+      toBlock: BigInt(to)
+    })
+
+    if (repayLogs.length > 0) {
+      console.log(`  Blocks ${from}-${to}: Found ${repayLogs.length} Repay events`)
+    }
+
+    for (const log of repayLogs) {
+      const user = (log.args?.user as string)?.toLowerCase()
+      const userLoanId = log.args?.userLoanId?.toString() ?? '0'
+      const amount = log.args?.amount?.toString() ?? '0'
+      const blockNumber = Number(log.blockNumber)
+      const txHash = log.transactionHash
+
+      repayEvents.push({
+        user,
+        userLoanId,
+        amount,
+        block: blockNumber,
+        timestamp: Math.floor(Date.now() / 1000),
+        txHash
+      })
+    }
+
+    // Collect Liquidation events
+    const liquidateLogs = await client.getLogs({
+      address: lendingContractAddress as `0x${string}`,
+      event: parseAbiItem('event Liquidation(address indexed loanOriginator, address indexed liquidator, uint256 amount, uint256 loanId)'),
+      fromBlock: BigInt(from),
+      toBlock: BigInt(to)
+    })
+
+    if (liquidateLogs.length > 0) {
+      console.log(`  Blocks ${from}-${to}: Found ${liquidateLogs.length} Liquidation events`)
+    }
+
+    for (const log of liquidateLogs) {
+      const loanOriginator = (log.args?.loanOriginator as string)?.toLowerCase()
+      const liquidator = (log.args?.liquidator as string)?.toLowerCase()
+      const amount = log.args?.amount?.toString() ?? '0'
+      const loanId = log.args?.loanId?.toString() ?? '0'
+      const blockNumber = Number(log.blockNumber)
+      const txHash = log.transactionHash
+
+      liquidateEvents.push({
+        loanOriginator,
+        liquidator,
+        amount,
+        loanId,
+        block: blockNumber,
+        timestamp: Math.floor(Date.now() / 1000),
+        txHash
+      })
+    }
+
     await sleep(5)
   }
 
   // Save all events to database
-  if (allEvents.length > 0) {
-    await db.saveLoanEvents(allEvents)
-    console.log(`\nSaved ${allEvents.length} Borrow events to database`)
-  } else {
-    console.log(`\nNo Borrow events found`)
+  if (borrowEvents.length > 0) {
+    await db.saveLoanEvents(borrowEvents)
+    console.log(`\nSaved ${borrowEvents.length} Borrow events to database`)
+  }
+
+  if (repayEvents.length > 0) {
+    await db.saveLoanRepayEvents(repayEvents)
+    console.log(`Saved ${repayEvents.length} Repay events to database`)
+  }
+
+  if (liquidateEvents.length > 0) {
+    await db.saveLoanLiquidateEvents(liquidateEvents)
+    console.log(`Saved ${liquidateEvents.length} Liquidation events to database`)
+  }
+
+  if (borrowEvents.length === 0 && repayEvents.length === 0 && liquidateEvents.length === 0) {
+    console.log(`\nNo loan events found`)
   }
 
   // Update the latest processed block

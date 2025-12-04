@@ -14,9 +14,25 @@ if systemctl is-active --quiet postgresql; then
     echo "Truncating latest_block table..."
     sudo -u postgres psql -d goldilend_api -c "TRUNCATE TABLE latest_block RESTART IDENTITY CASCADE;"
 
+    echo "Truncating loan_events table..."
+    sudo -u postgres psql -d goldilend_api -c "TRUNCATE TABLE loan_events RESTART IDENTITY CASCADE;"
+
+    echo "Truncating loan_repay_events table..."
+    sudo -u postgres psql -d goldilend_api -c "TRUNCATE TABLE loan_repay_events RESTART IDENTITY CASCADE;"
+
+    echo "Truncating loan_liquidate_events table..."
+    sudo -u postgres psql -d goldilend_api -c "TRUNCATE TABLE loan_liquidate_events RESTART IDENTITY CASCADE;"
+
+    echo "Truncating latest_loan_block table..."
+    sudo -u postgres psql -d goldilend_api -c "TRUNCATE TABLE latest_loan_block RESTART IDENTITY CASCADE;"
+
     echo "Resetting sequences..."
     sudo -u postgres psql -d goldilend_api -c "ALTER SEQUENCE nft_transfer_events_id_seq RESTART WITH 1;"
     sudo -u postgres psql -d goldilend_api -c "ALTER SEQUENCE latest_block_id_seq RESTART WITH 1;"
+    sudo -u postgres psql -d goldilend_api -c "ALTER SEQUENCE loan_events_id_seq RESTART WITH 1;"
+    sudo -u postgres psql -d goldilend_api -c "ALTER SEQUENCE loan_repay_events_id_seq RESTART WITH 1;"
+    sudo -u postgres psql -d goldilend_api -c "ALTER SEQUENCE loan_liquidate_events_id_seq RESTART WITH 1;"
+    sudo -u postgres psql -d goldilend_api -c "ALTER SEQUENCE latest_loan_block_id_seq RESTART WITH 1;"
 
     echo ""
     echo "✅ Database cleanup completed!"
@@ -34,9 +50,25 @@ else
     echo "Truncating latest_block table..."
     sudo -u postgres psql -d goldilend_api -c "TRUNCATE TABLE latest_block RESTART IDENTITY CASCADE;"
 
+    echo "Truncating loan_events table..."
+    sudo -u postgres psql -d goldilend_api -c "TRUNCATE TABLE loan_events RESTART IDENTITY CASCADE;"
+
+    echo "Truncating loan_repay_events table..."
+    sudo -u postgres psql -d goldilend_api -c "TRUNCATE TABLE loan_repay_events RESTART IDENTITY CASCADE;"
+
+    echo "Truncating loan_liquidate_events table..."
+    sudo -u postgres psql -d goldilend_api -c "TRUNCATE TABLE loan_liquidate_events RESTART IDENTITY CASCADE;"
+
+    echo "Truncating latest_loan_block table..."
+    sudo -u postgres psql -d goldilend_api -c "TRUNCATE TABLE latest_loan_block RESTART IDENTITY CASCADE;"
+
     echo "Resetting sequences..."
     sudo -u postgres psql -d goldilend_api -c "ALTER SEQUENCE nft_transfer_events_id_seq RESTART WITH 1;"
     sudo -u postgres psql -d goldilend_api -c "ALTER SEQUENCE latest_block_id_seq RESTART WITH 1;"
+    sudo -u postgres psql -d goldilend_api -c "ALTER SEQUENCE loan_events_id_seq RESTART WITH 1;"
+    sudo -u postgres psql -d goldilend_api -c "ALTER SEQUENCE loan_repay_events_id_seq RESTART WITH 1;"
+    sudo -u postgres psql -d goldilend_api -c "ALTER SEQUENCE loan_liquidate_events_id_seq RESTART WITH 1;"
+    sudo -u postgres psql -d goldilend_api -c "ALTER SEQUENCE latest_loan_block_id_seq RESTART WITH 1;"
 
     echo ""
     echo "✅ Database cleanup completed!"

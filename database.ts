@@ -24,6 +24,27 @@ export interface LoanEvent {
   txHash?: string
 }
 
+export interface LoanRepayEvent {
+  id?: number
+  user: string
+  userLoanId: string
+  amount: string
+  block: number
+  timestamp: number
+  txHash?: string
+}
+
+export interface LoanLiquidateEvent {
+  id?: number
+  loanOriginator: string
+  liquidator: string
+  amount: string
+  loanId: string
+  block: number
+  timestamp: number
+  txHash?: string
+}
+
 export class DatabaseService {
   private pool: Pool
 
@@ -93,6 +114,33 @@ export class DatabaseService {
         )
       `
 
+      // Create table for loan repay events
+      const createLoanRepayTableSQL = `
+        CREATE TABLE IF NOT EXISTS loan_repay_events (
+          id SERIAL PRIMARY KEY,
+          user_address VARCHAR(42) NOT NULL,
+          user_loan_id TEXT NOT NULL,
+          amount TEXT NOT NULL,
+          block BIGINT NOT NULL,
+          timestamp BIGINT NOT NULL,
+          tx_hash VARCHAR(66)
+        )
+      `
+
+      // Create table for loan liquidation events
+      const createLoanLiquidateTableSQL = `
+        CREATE TABLE IF NOT EXISTS loan_liquidate_events (
+          id SERIAL PRIMARY KEY,
+          loan_originator VARCHAR(42) NOT NULL,
+          liquidator VARCHAR(42) NOT NULL,
+          amount TEXT NOT NULL,
+          loan_id TEXT NOT NULL,
+          block BIGINT NOT NULL,
+          timestamp BIGINT NOT NULL,
+          tx_hash VARCHAR(66)
+        )
+      `
+
       // Create table for tracking latest processed loan block
       const createLatestLoanBlockTableSQL = `
         CREATE TABLE IF NOT EXISTS latest_loan_block (
@@ -106,6 +154,8 @@ export class DatabaseService {
       await client.query(createTransferTableSQL)
       await client.query(createLatestBlockTableSQL)
       await client.query(createLoanTableSQL)
+      await client.query(createLoanRepayTableSQL)
+      await client.query(createLoanLiquidateTableSQL)
       await client.query(createLatestLoanBlockTableSQL)
       console.log('Tables created successfully')
 
@@ -120,7 +170,10 @@ export class DatabaseService {
         'CREATE INDEX IF NOT EXISTS idx_loan_user ON loan_events(user_address)',
         'CREATE INDEX IF NOT EXISTS idx_loan_id ON loan_events(loan_id)',
         'CREATE INDEX IF NOT EXISTS idx_loan_collateral ON loan_events(collateral_address, collateral_id)',
-        'CREATE INDEX IF NOT EXISTS idx_loan_block ON loan_events(block)'
+        'CREATE INDEX IF NOT EXISTS idx_loan_block ON loan_events(block)',
+        'CREATE INDEX IF NOT EXISTS idx_loan_user_id ON loan_events(user_address, loan_id)',
+        'CREATE INDEX IF NOT EXISTS idx_repay_user_loan ON loan_repay_events(user_address, user_loan_id)',
+        'CREATE INDEX IF NOT EXISTS idx_liquidate_originator_loan ON loan_liquidate_events(loan_originator, loan_id)'
       ]
 
       console.log('Creating indexes...')
@@ -337,6 +390,85 @@ export class DatabaseService {
     }
   }
 
+  async saveLoanRepayEvents(events: LoanRepayEvent[]): Promise<void> {
+    if (events.length === 0) return
+
+    const client = await this.pool.connect()
+
+    try {
+      await client.query('BEGIN')
+
+      // Batch insert
+      const values = events.map((event, index) => {
+        const offset = index * 6
+        return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6})`
+      }).join(', ')
+
+      const flatValues = events.flatMap(event => [
+        event.user,
+        event.userLoanId,
+        event.amount,
+        event.block,
+        event.timestamp,
+        event.txHash || null
+      ])
+
+      const query = `
+        INSERT INTO loan_repay_events (user_address, user_loan_id, amount, block, timestamp, tx_hash)
+        VALUES ${values}
+        ON CONFLICT DO NOTHING
+      `
+
+      await client.query(query, flatValues)
+      await client.query('COMMIT')
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
+  }
+
+  async saveLoanLiquidateEvents(events: LoanLiquidateEvent[]): Promise<void> {
+    if (events.length === 0) return
+
+    const client = await this.pool.connect()
+
+    try {
+      await client.query('BEGIN')
+
+      // Batch insert
+      const values = events.map((event, index) => {
+        const offset = index * 7
+        return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7})`
+      }).join(', ')
+
+      const flatValues = events.flatMap(event => [
+        event.loanOriginator,
+        event.liquidator,
+        event.amount,
+        event.loanId,
+        event.block,
+        event.timestamp,
+        event.txHash || null
+      ])
+
+      const query = `
+        INSERT INTO loan_liquidate_events (loan_originator, liquidator, amount, loan_id, block, timestamp, tx_hash)
+        VALUES ${values}
+        ON CONFLICT DO NOTHING
+      `
+
+      await client.query(query, flatValues)
+      await client.query('COMMIT')
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
+  }
+
   async updateLatestLoanBlock(block: number): Promise<void> {
     const client = await this.pool.connect()
 
@@ -397,6 +529,54 @@ export class DatabaseService {
       `
 
       const result = await client.query(query, [normalizedAddress])
+
+      return result.rows.map((row: any) => ({
+        id: row.id,
+        user: row.user_address,
+        loanID: row.loan_id,
+        borrowAmount: row.borrow_amount,
+        interestAmount: row.interest_amount,
+        expiration: row.expiration,
+        collateral: row.collateral_address,
+        collateralID: row.collateral_id,
+        block: parseInt(row.block),
+        timestamp: parseInt(row.timestamp),
+        txHash: row.tx_hash
+      }))
+    } finally {
+      client.release()
+    }
+  }
+
+  async getLiquidatableLoans(): Promise<LoanEvent[]> {
+    const client = await this.pool.connect()
+
+    try {
+      const currentTimestamp = Math.floor(Date.now() / 1000)
+      const LOAN_GRACE_PERIOD = 86400 // 1 day in seconds
+      const AUCTION_PERIOD = 172800 // 2 days in seconds
+
+      const query = `
+        SELECT DISTINCT ON (le.user_address, le.loan_id)
+          le.id, le.user_address, le.loan_id, le.borrow_amount, le.interest_amount,
+          le.expiration, le.collateral_address, le.collateral_id, le.block, le.timestamp, le.tx_hash
+        FROM loan_events le
+        WHERE
+          CAST(le.expiration AS BIGINT) + $1 <= $2
+          AND CAST(le.expiration AS BIGINT) + $1 + $3 > $2
+          AND (
+            SELECT COALESCE(SUM(CAST(lre.amount AS NUMERIC)), 0)
+            FROM loan_repay_events lre
+            WHERE lre.user_address = le.user_address AND lre.user_loan_id = le.loan_id
+          ) < CAST(le.borrow_amount AS NUMERIC)
+          AND NOT EXISTS (
+            SELECT 1 FROM loan_liquidate_events lle
+            WHERE lle.loan_originator = le.user_address AND lle.loan_id = le.loan_id
+          )
+        ORDER BY le.user_address, le.loan_id, le.block DESC
+      `
+
+      const result = await client.query(query, [LOAN_GRACE_PERIOD, currentTimestamp, AUCTION_PERIOD])
 
       return result.rows.map((row: any) => ({
         id: row.id,

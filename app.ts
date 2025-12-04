@@ -87,6 +87,34 @@ app.get('/loans/:userAddress', async (req, res) => {
   }
 });
 
+app.get('/liquidatable-loans', async (req, res) => {
+  console.log('liquidatable-loans request received');
+  try {
+    // Check if any loan data has been processed
+    const latestProcessedBlock = await db.getLatestLoanBlock();
+    if (latestProcessedBlock === null) {
+      res.status(503).json({
+        error: 'Service not ready',
+        message: 'No loan blocks have been processed yet. Please wait for the updater to process historical data.'
+      });
+      return;
+    }
+
+    // Get liquidatable loans from database
+    const loans = await db.getLiquidatableLoans();
+
+    res.json({
+      totalLiquidatableLoans: loans.length,
+      loans,
+      latestProcessedBlock
+    });
+
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ error: 'failed to get liquidatable loans' });
+  }
+});
+
 app.listen(port, () => {
   console.log(`goldilend-api running on http://localhost:${port}`);
 });

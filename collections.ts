@@ -12,7 +12,7 @@ export const collections: NFTCollection[] = [
 //   { address: '0xDDeAf391c4be2d01ca52aBb8C159a06820ef078C', deployBlock: 698625, name: 'Babybear' },
 //   { address: '0xf49ec5db255854C4a567de5AB3826c9AAbaFc7cF', deployBlock: 698642, name: 'Boobear' },
 //   { address: '0xA0CF472E6132F6B822a944f6F31aA7b261c7c375', deployBlock: 698635, name: 'Bondbear' },
-//   { address: '0x141De07E5D4C4759EC9301DA106115D4841f66cD', deployBlock: 698638, name: 'Bongbear' }, // change deployBlock to something recent to debug large token id db save issue
+//   { address: '0x141De07E5D4C4759EC9301DA106115D4841f66cD', deployBlock: 698638, name: 'Bongbear' },
 ]
 
 // Helper to check if an address is a valid collection

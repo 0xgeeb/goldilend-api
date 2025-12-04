@@ -43,8 +43,16 @@ echo "⚙️  Truncating tables and resetting sequences..."
 sudo -u postgres psql -d goldilend_api <<SQL
 TRUNCATE TABLE nft_transfer_events RESTART IDENTITY CASCADE;
 TRUNCATE TABLE latest_block RESTART IDENTITY CASCADE;
+TRUNCATE TABLE loan_events RESTART IDENTITY CASCADE;
+TRUNCATE TABLE loan_repay_events RESTART IDENTITY CASCADE;
+TRUNCATE TABLE loan_liquidate_events RESTART IDENTITY CASCADE;
+TRUNCATE TABLE latest_loan_block RESTART IDENTITY CASCADE;
 ALTER SEQUENCE nft_transfer_events_id_seq RESTART WITH 1;
 ALTER SEQUENCE latest_block_id_seq RESTART WITH 1;
+ALTER SEQUENCE loan_events_id_seq RESTART WITH 1;
+ALTER SEQUENCE loan_repay_events_id_seq RESTART WITH 1;
+ALTER SEQUENCE loan_liquidate_events_id_seq RESTART WITH 1;
+ALTER SEQUENCE latest_loan_block_id_seq RESTART WITH 1;
 SQL
 
 echo ""
