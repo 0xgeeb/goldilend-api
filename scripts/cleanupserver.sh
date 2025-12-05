@@ -16,7 +16,6 @@ fi
 # Clean up temporary and env files
 echo "🗑️  Cleaning temporary files..."
 rm -f *.log 2>/dev/null && echo "Log files removed" || echo "No log files found"
-rm -f .env 2>/dev/null && echo ".env file removed" || echo "No .env file found"
 
 # Database cleanup
 echo ""
