@@ -66,7 +66,7 @@ async function ingestNFTEvents(fromBlock: number, toBlock: number) {
         })
       }
 
-      await sleep(5)
+      await sleep(100)
     }
   }
 
