@@ -137,7 +137,7 @@ async function ingestLoanEvents(fromBlock: number, toBlock: number) {
       })
     }
 
-    await sleep(5)
+    await sleep(100)
   }
 
   // Save all events to database
