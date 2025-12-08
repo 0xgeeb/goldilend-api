@@ -22,6 +22,7 @@ export interface LoanEvent {
   block: number
   timestamp: number
   txHash?: string
+  repaidAmount?: string
 }
 
 export interface LoanRepayEvent {
@@ -521,11 +522,16 @@ export class DatabaseService {
 
       const query = `
         SELECT
-          id, user_address, loan_id, borrow_amount, interest_amount,
-          expiration, collateral_address, collateral_id, block, timestamp, tx_hash
-        FROM loan_events
-        WHERE user_address = $1
-        ORDER BY block DESC, id DESC
+          le.id, le.user_address, le.loan_id, le.borrow_amount, le.interest_amount,
+          le.expiration, le.collateral_address, le.collateral_id, le.block, le.timestamp, le.tx_hash,
+          COALESCE(SUM(lre.amount::NUMERIC), 0)::TEXT as repaid_amount
+        FROM loan_events le
+        LEFT JOIN loan_repay_events lre
+          ON lre.user_address = le.user_address AND lre.user_loan_id = le.loan_id
+        WHERE le.user_address = $1
+        GROUP BY le.id, le.user_address, le.loan_id, le.borrow_amount, le.interest_amount,
+                 le.expiration, le.collateral_address, le.collateral_id, le.block, le.timestamp, le.tx_hash
+        ORDER BY le.block DESC, le.id DESC
       `
 
       const result = await client.query(query, [normalizedAddress])
@@ -541,7 +547,8 @@ export class DatabaseService {
         collateralID: row.collateral_id,
         block: parseInt(row.block),
         timestamp: parseInt(row.timestamp),
-        txHash: row.tx_hash
+        txHash: row.tx_hash,
+        repaidAmount: row.repaid_amount
       }))
     } finally {
       client.release()
