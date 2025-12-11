@@ -1,18 +1,11 @@
 #!/bin/bash
 
-echo "Cleaning up PostgreSQL database..."
-echo "=================================="
+echo "Cleaning up loan tables only..."
+echo "================================"
 
 # Check if PostgreSQL is running
 if systemctl is-active --quiet postgresql; then
-    echo "PostgreSQL is running. Truncating tables..."
-
-    # Connect to the database and truncate all tables
-    echo "Truncating nft_transfer_events table..."
-    sudo -u postgres psql -d goldilend_api -c "TRUNCATE TABLE nft_transfer_events RESTART IDENTITY CASCADE;"
-
-    echo "Truncating latest_block table..."
-    sudo -u postgres psql -d goldilend_api -c "TRUNCATE TABLE latest_block RESTART IDENTITY CASCADE;"
+    echo "PostgreSQL is running. Truncating loan tables..."
 
     echo "Truncating loan_events table..."
     sudo -u postgres psql -d goldilend_api -c "TRUNCATE TABLE loan_events RESTART IDENTITY CASCADE;"
@@ -30,8 +23,6 @@ if systemctl is-active --quiet postgresql; then
     sudo -u postgres psql -d goldilend_api -c "TRUNCATE TABLE latest_loan_block RESTART IDENTITY CASCADE;"
 
     echo "Resetting sequences..."
-    sudo -u postgres psql -d goldilend_api -c "ALTER SEQUENCE nft_transfer_events_id_seq RESTART WITH 1;"
-    sudo -u postgres psql -d goldilend_api -c "ALTER SEQUENCE latest_block_id_seq RESTART WITH 1;"
     sudo -u postgres psql -d goldilend_api -c "ALTER SEQUENCE loan_events_id_seq RESTART WITH 1;"
     sudo -u postgres psql -d goldilend_api -c "ALTER SEQUENCE loan_repay_events_id_seq RESTART WITH 1;"
     sudo -u postgres psql -d goldilend_api -c "ALTER SEQUENCE loan_liquidate_events_id_seq RESTART WITH 1;"
@@ -39,8 +30,8 @@ if systemctl is-active --quiet postgresql; then
     sudo -u postgres psql -d goldilend_api -c "ALTER SEQUENCE latest_loan_block_id_seq RESTART WITH 1;"
 
     echo ""
-    echo "✅ Database cleanup completed!"
-    echo "All tables have been truncated and sequences reset."
+    echo "✅ Loan tables cleanup completed!"
+    echo "NFT transfer tables remain untouched."
 else
     echo "PostgreSQL is not running. Starting it first..."
     sudo systemctl start postgresql
@@ -48,12 +39,6 @@ else
     # Wait a moment for PostgreSQL to start
     sleep 2
 
-    echo "Truncating nft_transfer_events table..."
-    sudo -u postgres psql -d goldilend_api -c "TRUNCATE TABLE nft_transfer_events RESTART IDENTITY CASCADE;"
-
-    echo "Truncating latest_block table..."
-    sudo -u postgres psql -d goldilend_api -c "TRUNCATE TABLE latest_block RESTART IDENTITY CASCADE;"
-
     echo "Truncating loan_events table..."
     sudo -u postgres psql -d goldilend_api -c "TRUNCATE TABLE loan_events RESTART IDENTITY CASCADE;"
 
@@ -70,8 +55,6 @@ else
     sudo -u postgres psql -d goldilend_api -c "TRUNCATE TABLE latest_loan_block RESTART IDENTITY CASCADE;"
 
     echo "Resetting sequences..."
-    sudo -u postgres psql -d goldilend_api -c "ALTER SEQUENCE nft_transfer_events_id_seq RESTART WITH 1;"
-    sudo -u postgres psql -d goldilend_api -c "ALTER SEQUENCE latest_block_id_seq RESTART WITH 1;"
     sudo -u postgres psql -d goldilend_api -c "ALTER SEQUENCE loan_events_id_seq RESTART WITH 1;"
     sudo -u postgres psql -d goldilend_api -c "ALTER SEQUENCE loan_repay_events_id_seq RESTART WITH 1;"
     sudo -u postgres psql -d goldilend_api -c "ALTER SEQUENCE loan_liquidate_events_id_seq RESTART WITH 1;"
@@ -79,9 +62,9 @@ else
     sudo -u postgres psql -d goldilend_api -c "ALTER SEQUENCE latest_loan_block_id_seq RESTART WITH 1;"
 
     echo ""
-    echo "✅ Database cleanup completed!"
-    echo "All tables have been truncated and sequences reset."
+    echo "✅ Loan tables cleanup completed!"
+    echo "NFT transfer tables remain untouched."
 fi
 
 echo ""
-echo "You can now run ingest again with a clean database."
+echo "You can now run loan ingest again with clean loan tables."
