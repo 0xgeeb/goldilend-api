@@ -1,6 +1,6 @@
 import dotenv from 'dotenv'
 import { createPublicClient, http, parseAbiItem, type Chain } from 'viem'
-import { DatabaseService, LoanEvent, LoanRepayEvent, LoanLiquidateEvent } from './database'
+import { DatabaseService, LoanEvent, LoanRepayEvent, LoanLiquidateEvent, LoanRenewEvent } from './database'
 
 dotenv.config()
 const rpc = process.env.RPC_URL ?? ''
@@ -35,6 +35,7 @@ async function ingestLoanEvents(fromBlock: number, toBlock: number) {
   const borrowEvents: LoanEvent[] = []
   const repayEvents: LoanRepayEvent[] = []
   const liquidateEvents: LoanLiquidateEvent[] = []
+  const renewEvents: LoanRenewEvent[] = []
 
   // Collect events in batches
   for (let from = Math.max(fromBlock, lendingContractDeployBlock); from <= toBlock; from += step) {
@@ -137,6 +138,43 @@ async function ingestLoanEvents(fromBlock: number, toBlock: number) {
       })
     }
 
+    // Collect Renew events
+    const renewLogs = await client.getLogs({
+      address: lendingContractAddress as `0x${string}`,
+      event: parseAbiItem('event Renew(address indexed user, uint256 loanId, uint256 newBorrowAmount, uint256 newInterest, uint256 newDuration)'),
+      fromBlock: BigInt(from),
+      toBlock: BigInt(to)
+    })
+
+    if (renewLogs.length > 0) {
+      console.log(`  Blocks ${from}-${to}: Found ${renewLogs.length} Renew events`)
+    }
+
+    for (const log of renewLogs) {
+      const user = (log.args?.user as string)?.toLowerCase()
+      const loanId = log.args?.loanId?.toString() ?? '0'
+      const newBorrowAmount = log.args?.newBorrowAmount?.toString() ?? '0'
+      const newInterest = log.args?.newInterest?.toString() ?? '0'
+      const newDuration = log.args?.newDuration?.toString() ?? '0'
+      const blockNumber = Number(log.blockNumber)
+      const txHash = log.transactionHash
+
+      // Fetch block timestamp to calculate new end date
+      const block = await client.getBlock({ blockNumber: log.blockNumber })
+      const blockTimestamp = Number(block.timestamp)
+
+      renewEvents.push({
+        user,
+        loanId,
+        newBorrowAmount,
+        newInterest,
+        newDuration,
+        block: blockNumber,
+        timestamp: blockTimestamp,
+        txHash
+      })
+    }
+
     await sleep(100)
   }
 
@@ -156,7 +194,12 @@ async function ingestLoanEvents(fromBlock: number, toBlock: number) {
     console.log(`Saved ${liquidateEvents.length} Liquidation events to database`)
   }
 
-  if (borrowEvents.length === 0 && repayEvents.length === 0 && liquidateEvents.length === 0) {
+  if (renewEvents.length > 0) {
+    await db.saveLoanRenewEvents(renewEvents)
+    console.log(`Saved ${renewEvents.length} Renew events to database`)
+  }
+
+  if (borrowEvents.length === 0 && repayEvents.length === 0 && liquidateEvents.length === 0 && renewEvents.length === 0) {
     console.log(`\nNo loan events found`)
   }
 

@@ -46,6 +46,18 @@ export interface LoanLiquidateEvent {
   txHash?: string
 }
 
+export interface LoanRenewEvent {
+  id?: number
+  user: string
+  loanId: string
+  newBorrowAmount: string
+  newInterest: string
+  newDuration: string
+  block: number
+  timestamp: number
+  txHash?: string
+}
+
 export class DatabaseService {
   private pool: Pool
 
@@ -142,6 +154,21 @@ export class DatabaseService {
         )
       `
 
+      // Create table for loan renew events
+      const createLoanRenewTableSQL = `
+        CREATE TABLE IF NOT EXISTS loan_renew_events (
+          id SERIAL PRIMARY KEY,
+          user_address VARCHAR(42) NOT NULL,
+          loan_id TEXT NOT NULL,
+          new_borrow_amount TEXT NOT NULL,
+          new_interest TEXT NOT NULL,
+          new_duration TEXT NOT NULL,
+          block BIGINT NOT NULL,
+          timestamp BIGINT NOT NULL,
+          tx_hash VARCHAR(66)
+        )
+      `
+
       // Create table for tracking latest processed loan block
       const createLatestLoanBlockTableSQL = `
         CREATE TABLE IF NOT EXISTS latest_loan_block (
@@ -157,6 +184,7 @@ export class DatabaseService {
       await client.query(createLoanTableSQL)
       await client.query(createLoanRepayTableSQL)
       await client.query(createLoanLiquidateTableSQL)
+      await client.query(createLoanRenewTableSQL)
       await client.query(createLatestLoanBlockTableSQL)
       console.log('Tables created successfully')
 
@@ -174,7 +202,9 @@ export class DatabaseService {
         'CREATE INDEX IF NOT EXISTS idx_loan_block ON loan_events(block)',
         'CREATE INDEX IF NOT EXISTS idx_loan_user_id ON loan_events(user_address, loan_id)',
         'CREATE INDEX IF NOT EXISTS idx_repay_user_loan ON loan_repay_events(user_address, user_loan_id)',
-        'CREATE INDEX IF NOT EXISTS idx_liquidate_originator_loan ON loan_liquidate_events(loan_originator, loan_id)'
+        'CREATE INDEX IF NOT EXISTS idx_liquidate_originator_loan ON loan_liquidate_events(loan_originator, loan_id)',
+        'CREATE INDEX IF NOT EXISTS idx_renew_user_loan ON loan_renew_events(user_address, loan_id)',
+        'CREATE INDEX IF NOT EXISTS idx_renew_block ON loan_renew_events(block)'
       ]
 
       console.log('Creating indexes...')
@@ -470,6 +500,47 @@ export class DatabaseService {
     }
   }
 
+  async saveLoanRenewEvents(events: LoanRenewEvent[]): Promise<void> {
+    if (events.length === 0) return
+
+    const client = await this.pool.connect()
+
+    try {
+      await client.query('BEGIN')
+
+      // Batch insert
+      const values = events.map((event, index) => {
+        const offset = index * 8
+        return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8})`
+      }).join(', ')
+
+      const flatValues = events.flatMap(event => [
+        event.user,
+        event.loanId,
+        event.newBorrowAmount,
+        event.newInterest,
+        event.newDuration,
+        event.block,
+        event.timestamp,
+        event.txHash || null
+      ])
+
+      const query = `
+        INSERT INTO loan_renew_events (user_address, loan_id, new_borrow_amount, new_interest, new_duration, block, timestamp, tx_hash)
+        VALUES ${values}
+        ON CONFLICT DO NOTHING
+      `
+
+      await client.query(query, flatValues)
+      await client.query('COMMIT')
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
+  }
+
   async updateLatestLoanBlock(block: number): Promise<void> {
     const client = await this.pool.connect()
 
@@ -521,16 +592,41 @@ export class DatabaseService {
       const normalizedAddress = userAddress.toLowerCase()
 
       const query = `
+        WITH renewal_totals AS (
+          SELECT
+            user_address,
+            loan_id,
+            SUM(new_borrow_amount::NUMERIC) as total_renewal_borrow,
+            SUM(new_interest::NUMERIC) as total_renewal_interest
+          FROM loan_renew_events
+          GROUP BY user_address, loan_id
+        ),
+        latest_renewal AS (
+          SELECT DISTINCT ON (user_address, loan_id)
+            user_address, loan_id, new_duration, timestamp, block
+          FROM loan_renew_events
+          ORDER BY user_address, loan_id, block DESC
+        )
         SELECT
-          le.id, le.user_address, le.loan_id, le.borrow_amount, le.interest_amount,
-          le.expiration, le.collateral_address, le.collateral_id, le.block, le.timestamp, le.tx_hash,
-          COALESCE(SUM(lre.amount::NUMERIC), 0)::TEXT as repaid_amount
+          le.id, le.user_address, le.loan_id,
+          (le.borrow_amount::NUMERIC + COALESCE(rt.total_renewal_borrow, 0))::TEXT as borrow_amount,
+          (le.interest_amount::NUMERIC + COALESCE(rt.total_renewal_interest, 0))::TEXT as interest_amount,
+          COALESCE((lr.timestamp + CAST(lr.new_duration AS BIGINT))::TEXT, le.expiration) as expiration,
+          le.collateral_address, le.collateral_id, le.block, le.timestamp, le.tx_hash,
+          COALESCE(SUM(lre.amount::NUMERIC), 0)::TEXT as repaid_amount,
+          lr.new_duration as renewed_duration,
+          lr.block as last_renewal_block
         FROM loan_events le
         LEFT JOIN loan_repay_events lre
           ON lre.user_address = le.user_address AND lre.user_loan_id = le.loan_id
+        LEFT JOIN renewal_totals rt
+          ON rt.user_address = le.user_address AND rt.loan_id = le.loan_id
+        LEFT JOIN latest_renewal lr
+          ON lr.user_address = le.user_address AND lr.loan_id = le.loan_id
         WHERE le.user_address = $1
         GROUP BY le.id, le.user_address, le.loan_id, le.borrow_amount, le.interest_amount,
-                 le.expiration, le.collateral_address, le.collateral_id, le.block, le.timestamp, le.tx_hash
+                 le.expiration, le.collateral_address, le.collateral_id, le.block, le.timestamp, le.tx_hash,
+                 rt.total_renewal_borrow, rt.total_renewal_interest, lr.new_duration, lr.timestamp, lr.block
         ORDER BY le.block DESC, le.id DESC
       `
 
@@ -564,17 +660,39 @@ export class DatabaseService {
       const AUCTION_PERIOD = 172800 // 2 days in seconds
 
       const query = `
+        WITH renewal_totals AS (
+          SELECT
+            user_address,
+            loan_id,
+            SUM(new_borrow_amount::NUMERIC) as total_renewal_borrow,
+            SUM(new_interest::NUMERIC) as total_renewal_interest
+          FROM loan_renew_events
+          GROUP BY user_address, loan_id
+        ),
+        latest_renewal AS (
+          SELECT DISTINCT ON (user_address, loan_id)
+            user_address, loan_id, new_duration, timestamp, block
+          FROM loan_renew_events
+          ORDER BY user_address, loan_id, block DESC
+        )
         SELECT DISTINCT ON (le.user_address, le.loan_id)
-          le.id, le.user_address, le.loan_id, le.borrow_amount, le.interest_amount,
-          le.expiration, le.collateral_address, le.collateral_id, le.block, le.timestamp, le.tx_hash
+          le.id, le.user_address, le.loan_id,
+          (le.borrow_amount::NUMERIC + COALESCE(rt.total_renewal_borrow, 0))::TEXT as borrow_amount,
+          (le.interest_amount::NUMERIC + COALESCE(rt.total_renewal_interest, 0))::TEXT as interest_amount,
+          COALESCE((lr.timestamp + CAST(lr.new_duration AS BIGINT))::TEXT, le.expiration) as expiration,
+          le.collateral_address, le.collateral_id, le.block, le.timestamp, le.tx_hash
         FROM loan_events le
+        LEFT JOIN renewal_totals rt
+          ON rt.user_address = le.user_address AND rt.loan_id = le.loan_id
+        LEFT JOIN latest_renewal lr
+          ON lr.user_address = le.user_address AND lr.loan_id = le.loan_id
         WHERE
-          CAST(le.expiration AS BIGINT) + $1 <= $2
+          CAST(COALESCE((lr.timestamp + CAST(lr.new_duration AS BIGINT))::TEXT, le.expiration) AS BIGINT) + $1 <= $2
           AND (
             SELECT COALESCE(SUM(CAST(lre.amount AS NUMERIC)), 0)
             FROM loan_repay_events lre
             WHERE lre.user_address = le.user_address AND lre.user_loan_id = le.loan_id
-          ) < CAST(le.borrow_amount AS NUMERIC)
+          ) < (le.borrow_amount::NUMERIC + COALESCE(rt.total_renewal_borrow, 0))
           AND NOT EXISTS (
             SELECT 1 FROM loan_liquidate_events lle
             WHERE lle.loan_originator = le.user_address AND lle.loan_id = le.loan_id
