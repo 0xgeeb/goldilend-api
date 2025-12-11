@@ -570,7 +570,6 @@ export class DatabaseService {
         FROM loan_events le
         WHERE
           CAST(le.expiration AS BIGINT) + $1 <= $2
-          AND CAST(le.expiration AS BIGINT) + $1 + $3 > $2
           AND (
             SELECT COALESCE(SUM(CAST(lre.amount AS NUMERIC)), 0)
             FROM loan_repay_events lre
@@ -583,7 +582,7 @@ export class DatabaseService {
         ORDER BY le.user_address, le.loan_id, le.block DESC
       `
 
-      const result = await client.query(query, [LOAN_GRACE_PERIOD, currentTimestamp, AUCTION_PERIOD])
+      const result = await client.query(query, [LOAN_GRACE_PERIOD, currentTimestamp])
 
       return result.rows.map((row: any) => ({
         id: row.id,
