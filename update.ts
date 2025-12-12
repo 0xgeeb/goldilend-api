@@ -23,8 +23,8 @@ const sleep = async (ms: number): Promise<void> => {
 }
 
 // Goldilend lending contract
-const lendingContractAddress = '0x46Ced2A745C911C76407fdA107FEACb22c32D05b'
-const lendingContractDeployBlock = 13014003
+const lendingContractAddress = '0x80D480Ad0c48A769eD481fA8a30B7c5DDABD2FDf'
+const lendingContractDeployBlock = 12941806
 
 const step = 10000
 
